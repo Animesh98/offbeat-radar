@@ -5,34 +5,39 @@
 # delta digests/day. Single user. All data stays local.
 
 reddit:
-  # COST WARNING: if you're using the Apify backend (no Reddit OAuth
-  # creds), every fetched item is billed at ~$3.40 per 1,000 — *before*
-  # our local seen-set runs, so the dedup doesn't save Apify cost.
-  # Default below assumes Apify + every-6h cadence. Roughly:
-  #   subs × posts_per_sub × runs/day × 30 × $0.0034 ≈ monthly $.
-  # 10 subs × 25 posts × 48 runs/day = ~$1,000/mo (DON'T do this on Apify).
-  # Switch to Reddit OAuth (Option A in SETUP.md) for unlimited cadence/subs.
+  # Default backend is "direct" — free, no credentials, hits old.reddit.com
+  # with a polite User-Agent and falls back through redlib mirrors on 403.
+  # No cost. If Reddit OAuth approval lands (REDDIT_CLIENT_ID etc set in
+  # env), the dispatcher auto-prefers it. Apify is opt-in only — set
+  # REDDIT_BACKEND=apify in env to use it.
   enabled: true
+  backend: auto                 # auto | oauth | direct | apify (env REDDIT_BACKEND wins)
   user_agent: "offbeat-radar/1.0 (by /u/{username})"
   fresh_window_hours: 24
-  posts_per_sub: 8       # raise to ~25 once you have OAuth
+  posts_per_sub: 25
+
+  # Mirror fallback for the direct backend on transient 403s. Public redlib
+  # instances rotate — refresh from awesome-redlib if blocks become persistent.
+  mirror_list:
+    - "https://redlib.r4fo.com"
+    - "https://safereddit.com"
+    - "https://l.opnxng.com"
 
   subreddits:
     # weight=0 disables a sub without removing it. role_focus is metadata
-    # only (used for context in the LLM prompt). The default 4 active subs
-    # below are the highest-signal for tech roles; the rest are commented
-    # at weight=0 so Apify users stay inside ~$8/mo. Re-enable freely once
-    # you have Reddit OAuth.
+    # only (used for context in the LLM prompt). At hourly cadence + direct
+    # backend, the 4 active subs below + 6 standby make ~240 reqs/day —
+    # well under Reddit's ~10/min unauth limit. Tune to your search.
     - { name: forhire,                weight: 1.0, role_focus: "general" }
     - { name: hiring,                 weight: 1.0, role_focus: "general" }
     - { name: MachineLearning,        weight: 1.0, role_focus: "ml" }
     - { name: LocalLLaMA,             weight: 1.0, role_focus: "llm" }
-    - { name: jobbit,                 weight: 0.0, role_focus: "general" }
-    - { name: remotejs,               weight: 0.0, role_focus: "engineering" }
-    - { name: LangChain,              weight: 0.0, role_focus: "llm" }
-    - { name: cscareerquestions,      weight: 0.0, role_focus: "engineering" }
-    - { name: developersIndia,        weight: 0.0, role_focus: "engineering" }
-    - { name: cscareerquestionsIN,    weight: 0.0, role_focus: "engineering" }
+    - { name: jobbit,                 weight: 0.9, role_focus: "general" }
+    - { name: remotejs,               weight: 1.0, role_focus: "engineering" }
+    - { name: LangChain,              weight: 0.9, role_focus: "llm" }
+    - { name: cscareerquestions,      weight: 0.7, role_focus: "engineering" }
+    - { name: developersIndia,        weight: 1.0, role_focus: "engineering" }
+    - { name: cscareerquestionsIN,    weight: 1.0, role_focus: "engineering" }
 
   drop_flairs:
     - "for hire"

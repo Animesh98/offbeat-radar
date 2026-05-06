@@ -176,6 +176,18 @@ export function finishRun(id, { ok, postsSeen, postsNew, postsKept, emailsSent, 
     postsKept ?? 0, emailsSent ?? 0, error || null, id);
 }
 
+// Used by the direct backend's adaptive-delay logic. Returns a 0..1 ratio
+// of fetch runs in the last `n` rows that ended with an error. Stateless;
+// reads straight from the runs table so it survives restarts.
+export function recentFailureRate(n = 6) {
+  const rows = db().prepare(
+    "SELECT error FROM runs WHERE kind='fetch' ORDER BY id DESC LIMIT ?"
+  ).all(n);
+  if (!rows.length) return 0;
+  const failed = rows.filter(r => r.error && r.error.length).length;
+  return failed / rows.length;
+}
+
 export function statusSnapshot() {
   const lastFetch = db().prepare(
     "SELECT * FROM runs WHERE kind='fetch' ORDER BY id DESC LIMIT 1"

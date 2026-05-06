@@ -26,9 +26,26 @@ to your search.
 
 ## 3. Pick a Reddit backend
 
-Two options:
+Three options. The dispatcher in `fetchers/reddit.mjs` picks automatically:
+OAuth (if creds present) > Direct (default, free, no creds) > Apify (only if
+you set `REDDIT_BACKEND=apify` in env). All paths return the same shape.
 
-### Option A — Reddit Data API (free, but gated)
+### Option A — Direct unauth (default, free, no creds)
+
+The default backend if nothing else is configured. Hits
+`https://old.reddit.com/r/{sub}/new.json` with a polite User-Agent. On
+403/429/503 it retries once, then falls through a redlib mirror list.
+At hourly cadence × 10 active subs that's ~240 reqs/day — well under
+Reddit's documented unauth ~10/min limit.
+
+Nothing to set up — it's the default. Customise `reddit.user_agent` and
+`reddit.mirror_list` in `config/offbeat.yml` if needed.
+
+Trade-off: 403s do happen — usually transient and absorbed by the mirror
+fallback, but extended outages are possible. Use OAuth (Option B) for
+guaranteed reliability once your approval lands.
+
+### Option B — Reddit Data API / OAuth (free, but gated)
 
 As of 2026 Reddit gates **all** new API access — including personal
 `script` apps — behind a manual review at
@@ -49,42 +66,38 @@ Once approved:
    REDDIT_PASSWORD=
    ```
 
-Free tier is 100 QPM — way more than this tool uses. With OAuth you can
-re-enable all the standby subreddits in `config/offbeat.yml` and bump
-`posts_per_sub` back up.
+Free tier is 100 QPM — way more than this tool uses. The dispatcher
+auto-prefers OAuth when these are set; the Direct backend stays as a
+fallback if you ever revoke the creds.
 
-### Option B — Apify Reddit Scraper Lite (paid)
+### Option C — Apify Reddit Scraper Lite (paid, opt-in only)
 
-Use this while you wait for Reddit OAuth approval. The
-`trudax/reddit-scraper-lite` actor is billed at **$3.40 per 1,000
-dataset items** (Pay-Per-Result). The free Apify plan gives $5/mo
-credit ≈ 1,470 free items/mo.
+Only used if you explicitly set `REDDIT_BACKEND=apify` in env AND have
+`APIFY_TOKEN` set. Never auto-selected — it costs money.
 
-**Important:** the local seen-set in `data/offbeat.db` deduplicates
-posts before they reach Haiku, but it does **not** reduce Apify cost —
-the actor still extracts every item it returns each run, including
-repeats from prior runs. Cost scales with `subs × posts_per_sub ×
-runs/day`, not with the number of *unique* posts.
+The `trudax/reddit-scraper-lite` actor bills $3.40 per 1,000 dataset
+items, with a $5/mo free credit ≈ 1,470 items/mo. The local seen-set
+**does not** reduce Apify cost — Apify is called before the seen-set
+runs, so the actor bills us for every item it returns each call,
+repeats included. Cost scales with `subs × posts_per_sub × runs/day`.
 
-Rough cost math:
+| Subs × posts_per_sub × runs/day | Items/mo | OOP after $5 credit |
+|---|---|---|
+| 4 × 8 × 4 (every 6h) | ~3,840 | ~$8/mo |
+| 10 × 25 × 24 (hourly) | ~180k | ~$607/mo ⚠️ |
 
-| Subs × posts_per_sub × runs/day | Items/mo | Gross | OOP after $5 credit |
-|---|---|---|---|
-| 4 × 8 × 4 (every 6h) — default config | ~3,840 | ~$13/mo | **~$8/mo** |
-| 10 × 25 × 48 (default 30-min, full subs) | ~360k | ~$1,224/mo | **~$1,219/mo** ⚠️ |
+If you reach for Apify, cap `posts_per_sub` low and use a wide-spaced
+timer. Most users should stick with Direct (Option A) until OAuth lands.
 
-The shipped `config/offbeat.yml` is set to the first row to keep
-Apify-only users inside ~$10/mo. Don't crank cadence or sub count on
-the Apify path — switch to OAuth instead.
+To opt in:
 
 1. Sign up at <https://apify.com>.
 2. Settings → Integrations → API tokens → create one.
 3. Add to `.env`:
    ```
    APIFY_TOKEN=apify_api_...
+   REDDIT_BACKEND=apify
    ```
-
-The dispatcher in `fetchers/reddit.mjs` picks Option A if both are set.
 
 ## 4. LLM + email
 
@@ -116,11 +129,11 @@ Two systemd user timers:
 ```bash
 # ~/.config/systemd/user/offbeat-radar-fetch.timer
 [Unit]
-Description=Offbeat Radar — every 6 hours (Apify-only) or 1 hour (Reddit OAuth)
+Description=Offbeat Radar — hourly fetch
 
 [Timer]
 OnBootSec=3min
-OnUnitActiveSec=6h          # Apify-only: every 6h. With Reddit OAuth, drop to 1h.
+OnUnitActiveSec=1h          # Direct or OAuth: hourly. Drop to 6h if you opt into Apify.
 Persistent=true
 Unit=offbeat-radar-fetch.service
 

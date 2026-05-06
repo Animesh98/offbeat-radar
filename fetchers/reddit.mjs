@@ -1,19 +1,22 @@
 // Reddit fetcher — dispatcher.
 //
-// Picks one of two backends at runtime:
-//   1. OAuth script app (free, but Reddit gates the API behind a manual
-//      review process — set REDDIT_CLIENT_ID/SECRET/USERNAME/PASSWORD).
-//   2. Apify reddit-scraper-lite (paid, ~$5/mo, no Reddit auth — set
-//      APIFY_TOKEN).
+// Picks one of three backends at runtime:
+//   1. OAuth script app (free, gated by Reddit approval — set
+//      REDDIT_CLIENT_ID/SECRET/USERNAME/PASSWORD).
+//   2. Direct unauth (free, no creds — hits old.reddit.com/.json with
+//      polite UA and falls back through redlib mirrors on 403).
+//   3. Apify reddit-scraper-lite (paid — set APIFY_TOKEN AND
+//      REDDIT_BACKEND=apify; never selected automatically).
 //
-// Selection rule: APIFY_TOKEN wins when present and REDDIT_CLIENT_ID is
-// absent. If both are set, OAuth wins (free path preferred).
+// Selection rule: REDDIT_BACKEND env var wins if set. Else: OAuth if creds
+// present, else Direct. Apify is always opt-in.
 //
-// Both paths return the same `{ posts: RawPost[], errors: string[] }` shape
+// All paths return the same `{ posts: RawPost[], errors: string[] }` shape
 // so the orchestrator doesn't care which one ran.
 
 import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { fetchAllRedditApify } from './reddit-apify.mjs';
+import { fetchAllRedditDirect } from './reddit-direct.mjs';
 
 const TOKEN_PATH = 'data/.reddit-token.json';
 const OAUTH_URL = 'https://www.reddit.com/api/v1/access_token';
@@ -84,7 +87,7 @@ async function authedGet(path, token) {
   return res.json();
 }
 
-function passesHeuristics(post, cfg) {
+export function passesHeuristics(post, cfg) {
   const flair = (post.link_flair_text || '').toLowerCase();
   const title = (post.title || '').toLowerCase();
   for (const f of cfg.drop_flairs || []) {
@@ -98,7 +101,7 @@ function passesHeuristics(post, cfg) {
   return true;
 }
 
-function normalize(post, sub) {
+export function normalize(post, sub) {
   return {
     source: `reddit:${sub}`,
     post_id: post.id,
@@ -156,9 +159,14 @@ async function fetchAllRedditOAuth(cfg) {
 }
 
 export async function fetchAllReddit(cfg) {
+  const explicit = (process.env.REDDIT_BACKEND || '').toLowerCase();
   const hasOAuth = !!process.env.REDDIT_CLIENT_ID;
   const hasApify = !!process.env.APIFY_TOKEN;
+
+  if (explicit === 'oauth' && hasOAuth) return fetchAllRedditOAuth(cfg);
+  if (explicit === 'apify' && hasApify) return fetchAllRedditApify(cfg);
+  if (explicit === 'direct')            return fetchAllRedditDirect(cfg);
+
   if (hasOAuth) return fetchAllRedditOAuth(cfg);
-  if (hasApify) return fetchAllRedditApify(cfg);
-  return { posts: [], errors: ['Reddit fetcher: no credentials (set REDDIT_CLIENT_ID or APIFY_TOKEN)'] };
+  return fetchAllRedditDirect(cfg);
 }
