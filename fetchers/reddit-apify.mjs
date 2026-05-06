@@ -4,15 +4,32 @@
 // `run-sync-get-dataset-items` endpoint. One call returns N posts as JSON,
 // no pagination dance.
 //
-// Cost (free-tier): ~$0.30 per 1000 posts. ~25 subs × ~25 fresh posts/run ≈
-// 600 posts/run × 48 runs/day = ~$5/mo. Free tier credit is $5/mo so OOP ~$0.
+// COST: trudax/reddit-scraper-lite is Pay-Per-Result at $3.40 per 1,000
+// dataset items. The free Apify plan gives $5/mo credit ≈ 1,470 items/mo.
+//
+// Important: the local seen-set in offbeat.db filters posts BEFORE Haiku
+// classification, but Apify is called BEFORE the seen-set runs (see
+// offbeat-fetch.mjs orchestration). So Apify bills us for every item it
+// extracts each run, including repeats from prior runs. Cost scales with
+// subs × posts_per_sub × runs/day, not with unique-posts/day.
+//
+// Shipped default (4 subs × posts_per_sub=8 × every-6h cadence) ≈
+// 3,840 items/mo ≈ $13/mo gross ≈ $8/mo OOP after free credit. Stay
+// inside that envelope on the Apify path; bigger setups belong on
+// Reddit OAuth (Option A in SETUP.md).
+//
+// TIMEOUTS: the actor's default `timeoutSecs` is 300s (per its run options
+// schema). We DO NOT pass a `?timeout=` query param — that param sets the
+// run's hard kill deadline, and a value below the actor's natural runtime
+// (with proxy + scroll + multiple startUrls) just produces TIMED-OUT runs.
+// Instead we keep chunks small enough to comfortably finish under 300s.
 //
 // Requires APIFY_TOKEN in env. Used as fallback when REDDIT_CLIENT_ID is
 // absent (i.e., we don't have approved Reddit API access yet).
 
 const ACTOR_ID = 'trudax~reddit-scraper-lite';
-const ENDPOINT = (token, timeout) =>
-  `https://api.apify.com/v2/acts/${ACTOR_ID}/run-sync-get-dataset-items?token=${token}&timeout=${timeout}`;
+const ENDPOINT = (token) =>
+  `https://api.apify.com/v2/acts/${ACTOR_ID}/run-sync-get-dataset-items?token=${token}`;
 
 function passesHeuristics(post, cfg) {
   const flair = (post.flair || '').toLowerCase();
@@ -49,18 +66,25 @@ function normalize(item) {
   };
 }
 
-async function runActor(startUrls, maxItems, token, timeoutSec = 90) {
-  const res = await fetch(ENDPOINT(token, timeoutSec), {
+async function runActor(startUrls, maxItems, perSub, token) {
+  // Note on knobs (see input schema at https://apify.com/trudax/reddit-scraper-lite):
+  //   maxItems     — global cap across the whole run.
+  //   maxPostCount — per-startUrl cap (per subreddit). We set it to perSub
+  //                  so one heavy sub can't swallow the whole budget.
+  //   skipCommunity / skipComments / skipUserPosts — strip the actor's
+  //                  default community-page + comment + user-post passes;
+  //                  we only want post listings.
+  const res = await fetch(ENDPOINT(token), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       startUrls,
       maxItems,
-      maxPostCount: maxItems,
+      maxPostCount: perSub,
       skipComments: true,
       skipUserPosts: true,
+      skipCommunity: true,
       scrollTimeout: 40,
-      type: 'posts',
       proxy: { useApifyProxy: true },
     }),
   });
@@ -87,23 +111,23 @@ export async function fetchAllRedditApify(cfg) {
   const out = [];
   const errors = [];
 
-  // Empirically, Apify's reddit-scraper-lite times out around 120s when given
-  // many subs at once. Smaller chunks parallelize at our end and keep each
-  // sync run well under the cap.
-  const chunkSize = 4;
+  // Smaller chunks finish well under the actor's 300s default timeout
+  // even on slow subs + residential proxy. chunkSize=2 ≈ ~30–60s per run
+  // in practice and gives us better failure isolation (one bad sub
+  // doesn't kill three siblings).
+  const chunkSize = 2;
   const chunks = [];
   for (let i = 0; i < subs.length; i += chunkSize) {
     chunks.push(subs.slice(i, i + chunkSize));
   }
 
-  // Limit concurrent Apify runs to be polite (and stay under free-tier
-  // memory limits, which scale with parallel runs).
+  // Cap concurrent Apify runs to stay polite + under free-plan memory.
   const parallel = 3;
   for (let i = 0; i < chunks.length; i += parallel) {
     const wave = chunks.slice(i, i + parallel);
     const results = await Promise.allSettled(wave.map(async (chunk) => {
       const startUrls = chunk.map(s => ({ url: `https://www.reddit.com/r/${s.name}/new/` }));
-      const items = await runActor(startUrls, perSub * chunk.length, token, 90);
+      const items = await runActor(startUrls, perSub * chunk.length, perSub, token);
       return { chunk, items };
     }));
     for (const r of results) {

@@ -7,8 +7,11 @@
  *      → cross-source dedup → upsert scored → POST APPLY rows to dashboard
  *      → log run
  *
- * Idempotent: re-runs are cheap because seen-set prevents re-classifying
- * already-seen posts. Designed for systemd-timer invocation every 30 min.
+ * Idempotent: re-runs are cheap because the seen-set prevents re-classifying
+ * already-seen posts. The seen-set saves Haiku tokens but does NOT save
+ * Apify cost (Apify runs before seen-set; see fetchers/reddit-apify.mjs).
+ * Designed for systemd-timer invocation; cadence depends on backend
+ * (see SETUP.md): every 6h on Apify-only, hourly on Reddit OAuth.
  *
  * Usage:
  *   node offbeat-fetch.mjs           # full run

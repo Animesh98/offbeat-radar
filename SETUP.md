@@ -28,10 +28,16 @@ to your search.
 
 Two options:
 
-### Option A — Reddit Data API (free)
+### Option A — Reddit Data API (free, but gated)
 
-Reddit gates new API access through a manual ticket review (days–weeks).
-If you already have access:
+As of 2026 Reddit gates **all** new API access — including personal
+`script` apps — behind a manual review at
+<https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=14868593862164>
+(select "I'm a Developer" → "I want to register to use the Reddit API").
+You'll get a Zendesk auto-ack; approval can take days to weeks. Until
+it lands, the "create app" button on `reddit.com/prefs/apps` is disabled.
+
+Once approved:
 
 1. <https://www.reddit.com/prefs/apps> → **create app** → **script** type.
 2. Redirect URI: `http://localhost:8080` (unused but required).
@@ -43,10 +49,33 @@ If you already have access:
    REDDIT_PASSWORD=
    ```
 
-### Option B — Apify Reddit Scraper (paid, ~$5/mo)
+Free tier is 100 QPM — way more than this tool uses. With OAuth you can
+re-enable all the standby subreddits in `config/offbeat.yml` and bump
+`posts_per_sub` back up.
 
-No Reddit account interaction. Free tier gives $5/mo credit which is
-roughly the volume this tool generates.
+### Option B — Apify Reddit Scraper Lite (paid)
+
+Use this while you wait for Reddit OAuth approval. The
+`trudax/reddit-scraper-lite` actor is billed at **$3.40 per 1,000
+dataset items** (Pay-Per-Result). The free Apify plan gives $5/mo
+credit ≈ 1,470 free items/mo.
+
+**Important:** the local seen-set in `data/offbeat.db` deduplicates
+posts before they reach Haiku, but it does **not** reduce Apify cost —
+the actor still extracts every item it returns each run, including
+repeats from prior runs. Cost scales with `subs × posts_per_sub ×
+runs/day`, not with the number of *unique* posts.
+
+Rough cost math:
+
+| Subs × posts_per_sub × runs/day | Items/mo | Gross | OOP after $5 credit |
+|---|---|---|---|
+| 4 × 8 × 4 (every 6h) — default config | ~3,840 | ~$13/mo | **~$8/mo** |
+| 10 × 25 × 48 (default 30-min, full subs) | ~360k | ~$1,224/mo | **~$1,219/mo** ⚠️ |
+
+The shipped `config/offbeat.yml` is set to the first row to keep
+Apify-only users inside ~$10/mo. Don't crank cadence or sub count on
+the Apify path — switch to OAuth instead.
 
 1. Sign up at <https://apify.com>.
 2. Settings → Integrations → API tokens → create one.
@@ -87,11 +116,11 @@ Two systemd user timers:
 ```bash
 # ~/.config/systemd/user/offbeat-radar-fetch.timer
 [Unit]
-Description=Offbeat Radar — every 30 min
+Description=Offbeat Radar — every 6 hours (Apify-only) or 1 hour (Reddit OAuth)
 
 [Timer]
 OnBootSec=3min
-OnUnitActiveSec=30min
+OnUnitActiveSec=6h          # Apify-only: every 6h. With Reddit OAuth, drop to 1h.
 Persistent=true
 Unit=offbeat-radar-fetch.service
 

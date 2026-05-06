@@ -17,9 +17,10 @@ Hacker News hiring ──┘                                                    
                                                                           └──▶ skip / dedup
 ```
 
-1. **Fetch** — every 30 minutes, pulls the newest posts from a configured
-   set of subreddits (Reddit Data API or Apify Reddit Scraper) and the
-   current month's `Ask HN: Who is hiring?` thread (HN's free Algolia API).
+1. **Fetch** — on a systemd timer (default every 6h on Apify-only, every
+   1h with Reddit OAuth), pulls the newest posts from a configured set of
+   subreddits (Reddit Data API or Apify Reddit Scraper) and the current
+   month's `Ask HN: Who is hiring?` thread (HN's free Algolia API).
 2. **Filter** — drops `[FOR HIRE]`-style posts, candidates seeking work,
    discussions, NSFW, and deleted content using flair + title heuristics.
 3. **Classify** — sends survivors to Claude Haiku 4.5 with the user's
@@ -34,8 +35,9 @@ Hacker News hiring ──┘                                                    
 
 ## Volume + rate limits
 
-- **~25 subreddits × ~25 fresh posts/sub × 48 runs/day = ~30,000 posts seen/day**, but most are skipped at the heuristic and dedup steps. Net traffic to the LLM is ~150 posts/day.
-- **API calls to Reddit:** ~80/day (fetcher hits each sub once per 30-min cycle; well under the 100 QPM limit on Reddit's free tier).
+- **Default config (Apify path):** 4 subs × 8 posts/sub × 4 runs/day ≈ 128 items/day fetched. With the local seen-set + heuristic + dedup steps, net traffic to the LLM is ~30–60 posts/day.
+- **API calls to Reddit:** ~16/day on Apify (4 subs × 4 runs); ~240/day if you switch to Reddit OAuth and bump cadence to hourly. Both far under the 100 QPM Reddit free-tier limit.
+- **Apify cost:** ~$8/mo OOP at default config (after the $5 free credit). See `SETUP.md` for the cost matrix and why bigger configs belong on OAuth.
 - **No data resold, republished, or shared.** The tool runs on the user's own server. All output goes only to the user's private inbox.
 - **Retention:** the SQLite seen-set is pruned to 30 days. Post bodies and
   author names are stored only as long as needed to render the digest and
