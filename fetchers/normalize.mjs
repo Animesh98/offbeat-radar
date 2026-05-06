@@ -78,6 +78,7 @@ TASKS:
 
 Be skeptical. Anonymous "DM me" caps at 6. No-comp + no-location caps at 5.
 Hard skips override stack fit.`;
+}
 
 function buildUserMessage(post) {
   const created = new Date(post.created_at).toISOString();
