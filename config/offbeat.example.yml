@@ -1,0 +1,87 @@
+# Offbeat Radar configuration — copy to config/offbeat.yml and edit.
+#
+# Personal job-search scraper. Polls Reddit + HN for fresh hiring posts,
+# classifies them with an LLM against the user's profile, and emails ~4
+# delta digests/day. Single user. All data stays local.
+
+reddit:
+  enabled: true
+  user_agent: "offbeat-radar/1.0 (by /u/{username})"
+  fresh_window_hours: 24
+  posts_per_sub: 25      # Apify fetches this many per sub per run
+
+  subreddits:
+    # Edit this list to match your search. weight=0 disables a sub
+    # without removing it. role_focus is metadata only (used for
+    # context in the LLM prompt).
+    - { name: forhire,                weight: 1.0, role_focus: "general" }
+    - { name: hiring,                 weight: 1.0, role_focus: "general" }
+    - { name: jobbit,                 weight: 0.9, role_focus: "general" }
+    - { name: remotejs,               weight: 1.0, role_focus: "engineering" }
+    - { name: MachineLearning,        weight: 1.0, role_focus: "ml" }
+    - { name: LocalLLaMA,             weight: 1.0, role_focus: "llm" }
+    - { name: LangChain,              weight: 0.9, role_focus: "llm" }
+    - { name: cscareerquestions,      weight: 0.7, role_focus: "engineering" }
+    - { name: developersIndia,        weight: 1.0, role_focus: "engineering" }
+    - { name: cscareerquestionsIN,    weight: 1.0, role_focus: "engineering" }
+    # Add or remove subs as fit.
+
+  drop_flairs:
+    - "for hire"
+    - "[for hire]"
+    - "seeking"
+    - "hired"
+    - "closed"
+    - "discussion"
+
+  drop_title_keywords:
+    - "[for hire]"
+    - "for hire -"
+    - "[seeking]"
+    - "looking for work"
+    - "i'm available"
+    - "anyone hiring"
+
+hn:
+  enabled: true
+  fresh_window_hours: 24
+  threads:
+    - { type: hiring,    title_pattern: "Ask HN: Who is hiring?" }
+    - { type: freelance, title_pattern: "Ask HN: Freelancer? Seeking freelancer?" }
+
+normalize:
+  model: "claude-haiku-4-5-20251001"
+  concurrency: 4
+  max_input_chars: 4000
+  classifications: [HIRING, SEEKING, DISCUSSION, GIG, SPAM]
+  keep: [HIRING]
+  min_confidence: 0.55
+
+# Profile section is interpolated into the LLM prompt (see fetchers/normalize.mjs).
+# Edit this to match your own search profile.
+profile:
+  summary: |
+    Edit this to describe yourself: role, years experience, stack, comp floor,
+    location/remote preferences, hard-skips. The LLM uses this verbatim to
+    classify and score posts.
+
+scoring:
+  apply_threshold: 7.0
+  digest_threshold: 5.0
+
+digest:
+  enabled: true
+  cron_times_local:
+    - "09:30"
+    - "13:30"
+    - "17:30"
+    - "21:30"
+  max_items_per_email: 12
+  suppress_if_empty: true
+  subject_prefix: "Offbeat radar"
+
+dedup:
+  cross_source_window_days: 7
+
+paths:
+  db: "data/offbeat.db"
