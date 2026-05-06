@@ -29,6 +29,7 @@ import {
 } from './fetchers/seen.mjs';
 import { fetchAllReddit } from './fetchers/reddit.mjs';
 import { fetchAllHN } from './fetchers/hn.mjs';
+import { fetchAllHNJobs } from './fetchers/hn-jobs.mjs';
 import { normalizeBatch } from './fetchers/normalize.mjs';
 
 // ── Env ─────────────────────────────────────────────────────────────
@@ -146,15 +147,16 @@ async function main() {
 
   try {
     // 1. Fetch in parallel.
-    log('→ fetching Reddit + HN...');
-    const [reddit, hn] = await Promise.all([
+    log('→ fetching Reddit + HN + HN /jobs...');
+    const [reddit, hn, hnjobs] = await Promise.all([
       fetchAllReddit(cfg.reddit).catch(e => ({ posts: [], errors: [String(e.message)] })),
       fetchAllHN(cfg.hn).catch(e => ({ posts: [], errors: [String(e.message)] })),
+      fetchAllHNJobs(cfg.hn_jobs).catch(e => ({ posts: [], errors: [String(e.message)] })),
     ]);
-    allErrors.push(...reddit.errors, ...hn.errors);
-    const all = [...reddit.posts, ...hn.posts];
+    allErrors.push(...reddit.errors, ...hn.errors, ...hnjobs.errors);
+    const all = [...reddit.posts, ...hn.posts, ...hnjobs.posts];
     postsSeen = all.length;
-    log(`  reddit: ${reddit.posts.length}  hn: ${hn.posts.length}  errors: ${reddit.errors.length + hn.errors.length}`);
+    log(`  reddit: ${reddit.posts.length}  hn: ${hn.posts.length}  hn-jobs: ${hnjobs.posts.length}  errors: ${reddit.errors.length + hn.errors.length + hnjobs.errors.length}`);
 
     // 2. Filter out posts we've already classified.
     let fresh = all.filter(p => !isSeen(p.source, p.post_id));

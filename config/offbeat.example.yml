@@ -64,6 +64,19 @@ hn:
     # if it ever returns.
     - { type: hiring, title_pattern: "Ask HN: Who is hiring?" }
 
+# Hacker News /jobs feed — paid YC-startup job postings, distinct from
+# the monthly "Who is hiring" thread. Free Firebase API
+# (https://hacker-news.firebaseio.com/v0/jobstories.json), ~30 active
+# jobs at any time. URL bodies are fetched and HTML-stripped so the LLM
+# has full JD context. This effectively gives us the workatastartup feed
+# (which is gated behind a login wall on the public site).
+hn_jobs:
+  enabled: true
+  fresh_window_hours: 168          # 7 days — YC jobs cycle slowly
+  max_jobs: 40                     # cap on items to consider per run
+  enrich_body: true                # fetch + HTML-strip the linked URL for full JD
+  user_agent: "offbeat-radar/1.0 (+jobs)"
+
 normalize:
   model: "claude-haiku-4-5-20251001"
   concurrency: 4

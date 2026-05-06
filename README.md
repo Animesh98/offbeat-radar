@@ -1,9 +1,10 @@
 # Offbeat Radar
 
 A personal job-search digest tool. Polls a small list of public job-related
-subreddits and Hacker News' monthly "Who is hiring?" thread, classifies
-posts with an LLM against the user's own profile, and emails ~4 short
-delta-digests per day. Single-user. All data stays local.
+subreddits, Hacker News' monthly "Who is hiring?" thread, and HN's `/jobs`
+feed (paid YC-startup posts), classifies posts with an LLM against the
+user's own profile, and emails ~4 short delta-digests per day. Single-user.
+All data stays local.
 
 This is a private utility, not a service. There is no public-facing surface,
 no republishing of Reddit content, and no second user.
@@ -11,16 +12,17 @@ no republishing of Reddit content, and no second user.
 ## What it does
 
 ```
-Reddit (~25 subs)  ──┐
-                     ├──▶ heuristic prefilter ──▶ LLM classify+score ──▶ SQLite ──▶ HTML email
-Hacker News hiring ──┘                                                    │
+Reddit (~10 subs)  ──┐
+HN "Who is hiring?"  ├──▶ heuristic prefilter ──▶ LLM classify+score ──▶ SQLite ──▶ HTML email
+HN /jobs (YC paid) ──┘                                                    │
                                                                           └──▶ skip / dedup
 ```
 
-1. **Fetch** — on a systemd timer (default every 6h on Apify-only, every
-   1h with Reddit OAuth), pulls the newest posts from a configured set of
-   subreddits (Reddit Data API or Apify Reddit Scraper) and the current
-   month's `Ask HN: Who is hiring?` thread (HN's free Algolia API).
+1. **Fetch** — on a systemd timer (default hourly with the free direct
+   backend), pulls the newest posts from a configured set of subreddits
+   (direct unauth, OAuth, or Apify), the current month's `Ask HN: Who is
+   hiring?` thread (HN Algolia), and HN's `/jobs` feed (YC-startup paid
+   postings via the official Firebase API; URLs followed for full JD body).
 2. **Filter** — drops `[FOR HIRE]`-style posts, candidates seeking work,
    discussions, NSFW, and deleted content using flair + title heuristics.
 3. **Classify** — sends survivors to Claude Haiku 4.5 with the user's
